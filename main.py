@@ -71,43 +71,49 @@ PRINTER_PORTS = (80, 443, 515, 631, 9100)
 
 
 def get_connection():
-    connection = psycopg2.connect(DATABASE_URL)
+    url = DATABASE_URL
+    if url and "sslmode" not in url:
+        url += "&sslmode=require" if "?" in url else "?sslmode=require"
+    connection = psycopg2.connect(url)
     return connection
 
 
 def init_db() -> None:
-    with get_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    username TEXT NOT NULL UNIQUE,
-                    password_hash TEXT NOT NULL,
-                    is_admin INTEGER NOT NULL DEFAULT 0,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS printers (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    ip TEXT NOT NULL UNIQUE,
-                    brand TEXT NOT NULL,
-                    location TEXT NOT NULL
-                )
-                """
-            )
-            cursor.execute("SELECT COUNT(*) FROM users")
-            if cursor.fetchone()[0] == 0:
-                hashed = pwd_context.hash("admin123")
+    try:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
                 cursor.execute(
-                    "INSERT INTO users (username, password_hash, is_admin) VALUES (%s, %s, %s)",
-                    ("admin", hashed, 1),
+                    """
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        username TEXT NOT NULL UNIQUE,
+                        password_hash TEXT NOT NULL,
+                        is_admin INTEGER NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
                 )
-        connection.commit()
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS printers (
+                        id SERIAL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        ip TEXT NOT NULL UNIQUE,
+                        brand TEXT NOT NULL,
+                        location TEXT NOT NULL
+                    )
+                    """
+                )
+                cursor.execute("SELECT COUNT(*) FROM users")
+                if cursor.fetchone()[0] == 0:
+                    hashed = pwd_context.hash("admin123")
+                    cursor.execute(
+                        "INSERT INTO users (username, password_hash, is_admin) VALUES (%s, %s, %s)",
+                        ("admin", hashed, 1),
+                    )
+            connection.commit()
+    except Exception as e:
+        print(f"Error initializing database: {e}")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

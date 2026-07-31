@@ -5,3 +5,6 @@ __pycache__/
 printers.db
 .vercel/
 node_modules/
+
+.vercel
+.env*
