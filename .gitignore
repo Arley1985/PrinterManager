@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+printers.db
+.vercel/
+node_modules/
