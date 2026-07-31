@@ -72,7 +72,9 @@ PRINTER_PORTS = (80, 443, 515, 631, 9100)
 
 def get_connection():
     url = DATABASE_URL
-    if url and "sslmode" not in url:
+    if not url:
+        raise Exception("DATABASE_URL not configured")
+    if "sslmode" not in url:
         url += "&sslmode=require" if "?" in url else "?sslmode=require"
     connection = psycopg2.connect(url)
     return connection
@@ -188,9 +190,18 @@ def scan_host(ip: str) -> DiscoveredPrinter | None:
     return DiscoveredPrinter(ip=ip, open_ports=open_ports, web_url=web_url)
 
 
+_db_initialized = False
+
+
 @app.on_event("startup")
 def on_startup() -> None:
-    init_db()
+    global _db_initialized
+    if not _db_initialized:
+        try:
+            init_db()
+            _db_initialized = True
+        except Exception as e:
+            print(f"Startup warning: {e}")
 
 
 @app.post("/api/auth/register", response_model=User, status_code=201)
