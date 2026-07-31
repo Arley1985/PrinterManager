@@ -63,6 +63,11 @@ def get_db_url():
     url = DATABASE_URL
     if not url:
         raise Exception("DATABASE_URL not configured")
+    url = url.replace("pgbouncer=true", "").replace("&&", "&").replace("?&", "?")
+    if url.endswith("?"):
+        url = url[:-1]
+    if url.endswith("&"):
+        url = url[:-1]
     if "sslmode" not in url:
         url += "&sslmode=require" if "?" in url else "?sslmode=require"
     return url
