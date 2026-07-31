@@ -304,3 +304,8 @@ def scan_network(
     return sorted(found, key=lambda item: tuple(int(part) for part in item.ip.split(".")))
 
 
+@app.get("/", include_in_schema=False)
+def index():
+    return {"message": "PrinterManager API is running", "docs": "/docs"}
+
+
