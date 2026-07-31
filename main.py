@@ -1,12 +1,13 @@
 import os
-import traceback
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Annotated
 
 import psycopg2
 import psycopg2.extras
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -122,6 +123,9 @@ def on_startup():
 
 @app.get("/", include_in_schema=False)
 def index():
+    html_path = Path(__file__).parent / "public" / "index.html"
+    if html_path.exists():
+        return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
     return {"message": "PrinterManager API is running", "docs": "/docs"}
 
 
