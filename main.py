@@ -1,27 +1,25 @@
 import os
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Annotated
 
 import psycopg2
 import psycopg2.extras
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, Field
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
-SECRET_KEY = os.environ.get("SECRET_KEY", "fallback-secret-key-for-development")
+SECRET_KEY = os.environ.get("SECRET_KEY", "fallback-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer(auto_error=False)
 
-app = FastAPI(title="Gestor de Impresoras Universidad")
+app = FastAPI(title="PrinterManager")
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,10 +62,8 @@ def get_db_url():
     url = DATABASE_URL
     if not url:
         raise Exception("DATABASE_URL not configured")
-    url = url.replace("pgbouncer=true", "").replace("&&", "&").replace("?&", "?")
-    if url.endswith("?"):
-        url = url[:-1]
-    if url.endswith("&"):
+    url = url.replace("pgbouncer=true", "").replace("&&", "&").replace("?&", "?").replace("&?", "?")
+    if url.endswith("?") or url.endswith("&"):
         url = url[:-1]
     if "sslmode" not in url:
         url += "&sslmode=require" if "?" in url else "?sslmode=require"
@@ -112,21 +108,9 @@ def ensure_tables():
         conn.close()
 
 
-@app.on_event("startup")
-def on_startup():
-    try:
-        ensure_tables()
-    except Exception as e:
-        print(f"DB init error: {e}")
-        traceback.print_exc()
-
-
-@app.get("/", include_in_schema=False)
-def index():
-    html_path = Path(__file__).parent / "public" / "index.html"
-    if html_path.exists():
-        return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
-    return {"message": "PrinterManager API is running", "docs": "/docs"}
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "PrinterManager API", "docs": "/docs"}
 
 
 @app.post("/api/auth/register", response_model=User, status_code=201)
@@ -159,49 +143,35 @@ def login(user_in: UserIn):
                 (user_in.username.strip(),),
             )
             user = cur.fetchone()
-        if not user or not verify_password(user_in.password, user["password_hash"]):
+        if not user or not pwd_context.verify(user_in.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Credenciales invalidas")
-        access_token = create_access_token({"sub": user["username"]})
+        access_token = jwt.encode(
+            {"sub": user["username"], "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)},
+            SECRET_KEY,
+            algorithm=ALGORITHM,
+        )
         return Token(access_token=access_token)
     finally:
         conn.close()
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)]
 ):
     if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No autenticado",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise HTTPException(status_code=401, detail="No autenticado")
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
+        username = payload.get("sub")
         if not username:
             raise HTTPException(status_code=401, detail="Token invalido")
     except JWTError:
-        raise HTTPException(status_code=401, detail="Token invalido o expirado")
+        raise HTTPException(status_code=401, detail="Token invalido")
 
     conn = get_connection()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                "SELECT id, username, is_admin FROM users WHERE username = %s",
-                (username,),
-            )
+            cur.execute("SELECT id, username, is_admin FROM users WHERE username = %s", (username,))
             user = cur.fetchone()
     finally:
         conn.close()
